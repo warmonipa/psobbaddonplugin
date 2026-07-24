@@ -3,8 +3,18 @@ name: Build
 on:
   push:
     branches: [ master ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag to publish (for example v3.7.0); leave empty for artifact-only build
+        required: false
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -14,10 +24,36 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Add MSBuild to PATH
-      uses: microsoft/setup-msbuild@v2
+      uses: microsoft/setup-msbuild@v3
 
     - name: Build Release
       run: msbuild bbmod.sln /p:Configuration=Release /p:Platform=x86
 
     - name: Build Debug
       run: msbuild bbmod.sln /p:Configuration=Debug /p:Platform=x86
+
+    - name: Package bbmod.zip
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force bbmod-package | Out-Null
+        Copy-Item Release\dinput8.dll bbmod-package\
+        Copy-Item Release\dinput8.pdb bbmod-package\
+        Copy-Item README.md bbmod-package\
+        Copy-Item CHANGELOG.md bbmod-package\
+        Copy-Item addons bbmod-package\addons -Recurse
+        Compress-Archive -Path bbmod-package\* -DestinationPath bbmod.zip
+
+    - name: Upload bbmod.zip
+      uses: actions/upload-artifact@v4
+      with:
+        name: bbmod
+        path: bbmod.zip
+        if-no-files-found: error
+
+    - name: Publish bbmod.zip
+      if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: ${{ inputs.release_tag || github.ref_name }}
+        files: bbmod.zip
+        generate_release_notes: true
